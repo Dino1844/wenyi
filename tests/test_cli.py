@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -43,6 +45,7 @@ class TestCliConfig(unittest.TestCase):
         with (
             patch("trans_novel.cli._load_config", return_value=cfg),
             patch("trans_novel.pipeline.orchestrator.Orchestrator", FakeOrchestrator),
+            patch("trans_novel.cli.os.path.isfile", return_value=True),
         ):
             result = CliRunner().invoke(app, ["translate", "input.txt"])
 
@@ -81,6 +84,7 @@ class TestCliConfig(unittest.TestCase):
         with (
             patch("trans_novel.cli._load_config", return_value=cfg),
             patch("trans_novel.pipeline.orchestrator.Orchestrator", FakeOrchestrator),
+            patch("trans_novel.cli.os.path.isfile", return_value=True),
         ):
             result = CliRunner().invoke(
                 app,
@@ -122,6 +126,7 @@ class TestCliConfig(unittest.TestCase):
         with (
             patch("trans_novel.cli._load_config", return_value=cfg),
             patch("trans_novel.pipeline.orchestrator.Orchestrator", FakeOrchestrator),
+            patch("trans_novel.cli.os.path.isfile", return_value=True),
         ):
             result = CliRunner().invoke(
                 app,
@@ -134,6 +139,37 @@ class TestCliConfig(unittest.TestCase):
         self.assertIsNone(captured["run_all"]["out_path"])
         self.assertIsNone(captured["run_all"]["do_qa"])
         self.assertTrue(captured["polish"])
+
+    def test_translate_missing_input_exits_before_loading_config(self):
+        missing = os.path.join(tempfile.gettempdir(), "trans-novel-missing.epub")
+        with patch(
+            "trans_novel.cli._load_config",
+            side_effect=AssertionError("config should not load"),
+        ):
+            result = CliRunner().invoke(app, ["translate", missing])
+
+        self.assertEqual(result.exit_code, 1, result.output)
+        self.assertIn("输入文件不存在", result.output)
+
+    def test_status_does_not_create_state_directory(self):
+        with tempfile.TemporaryDirectory() as d:
+            src = os.path.join(d, "novel.txt")
+            state_dir = os.path.join(d, "state")
+            with open(src, "w", encoding="utf-8") as f:
+                f.write("第一段。\n")
+            cfg = Config.from_dict(
+                {
+                    "language": {"source": "ja", "target": "zh"},
+                    "paths": {"state_dir": state_dir},
+                }
+            )
+
+            with patch("trans_novel.cli._load_config", return_value=cfg):
+                result = CliRunner().invoke(app, ["status", src])
+
+            self.assertEqual(result.exit_code, 1, result.output)
+            self.assertIn("尚无进度", result.output)
+            self.assertFalse(os.path.exists(state_dir))
 
 
 if __name__ == "__main__":

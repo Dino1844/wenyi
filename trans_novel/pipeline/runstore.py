@@ -30,9 +30,13 @@ def slugify(name: str) -> str:
 
 
 class RunStore:
-    def __init__(self, run_dir: str):
+    def __init__(self, run_dir: str, *, create: bool = True):
         self.run_dir = run_dir
         self.chapters_dir = os.path.join(run_dir, "chapters")
+        if create:
+            self.ensure_dirs()
+
+    def ensure_dirs(self) -> None:
         os.makedirs(self.chapters_dir, exist_ok=True)
 
     # ── 路径 ──────────────────────────────────────────────────────────────
@@ -66,6 +70,7 @@ class RunStore:
     # ── 通用 JSON ─────────────────────────────────────────────────────────
     @staticmethod
     def _write_json(path: str, data) -> None:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
         tmp = path + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
@@ -143,6 +148,7 @@ class RunStore:
     # ── 追加式事件日志 ────────────────────────────────────────────────────
     def log_event(self, event: str, **data: Any) -> None:
         """追加一条 JSONL 事件，用于翻译行为、改写前后和产物对账。"""
+        self.ensure_dirs()
         row = {
             "ts": datetime.now().astimezone().isoformat(timespec="seconds"),
             "event": event,

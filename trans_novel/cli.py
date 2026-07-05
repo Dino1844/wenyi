@@ -47,10 +47,70 @@ def _load_config() -> Config:
     return Config.load(_CONFIG["path"])
 
 
+def _require_input_file(input_path: str) -> None:
+    if not os.path.isfile(input_path):
+        console.print(f"[red]输入文件不存在：{input_path}[/]")
+        raise typer.Exit(1)
+
+
 def _runstore_for(config: Config, input_path: str) -> RunStore:
+    _require_input_file(input_path)
     doc = load_document(input_path, config.source_lang, config.target_lang)
     run_dir = os.path.join(config.state_dir, slugify(doc.title))
-    return RunStore(run_dir)
+    return RunStore(run_dir, create=False)
+
+
+def _translate_impl(
+    input_path: str,
+    *,
+    chapter: Optional[int] = None,
+    fmt: str = "epub",
+    out: Optional[str] = None,
+    polish: Optional[bool] = None,
+    qa: Optional[bool] = None,
+) -> None:
+    """translate/resume 共享实现，避免 CLI 参数转发漂移。"""
+    from .pipeline.orchestrator import Orchestrator
+
+    _require_input_file(input_path)
+    config = _load_config()
+    if polish is not None:
+        config.pipeline.polish = polish
+    orch = Orchestrator(config)
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        MofNCompleteColumn(),
+        TextColumn("段"),
+        TimeElapsedColumn(),
+        console=console,
+    ) as prog:
+        task = prog.add_task("准备中…", total=None)
+
+        def cb(done: int, total: int, label: str) -> None:
+            prog.update(task, completed=done, total=total or None, description=label)
+
+        if chapter is not None:
+            store = orch.run(input_path, only_chapter=chapter, progress=cb)
+            console.print(f"[green]已翻第 {chapter} 章[/]，状态目录：{store.run_dir}")
+            return
+
+        result = orch.run_all(
+            input_path,
+            progress=cb,
+            out_format=fmt,
+            out_path=out,
+            do_qa=qa,
+        )
+
+    s = result["report"]["summary"]
+    console.print(
+        f"[bold green]完成[/]：{s['chapters_done']}/{s['chapters_total']} 章，"
+        f"术语 {s['terms']}，一致性问题 {len(result['qa_issues'])} 项。"
+    )
+    console.print(f"译文：[bold]{result['output']}[/]")
 
 
 # ── translate / resume：连续全流程 ──────────────────────────────────────────
@@ -74,46 +134,7 @@ def translate(
     ),
 ):
     """翻译（连续全流程；可断点续跑）。"""
-    from .pipeline.orchestrator import Orchestrator
-
-    config = _load_config()
-    if polish is not None:
-        config.pipeline.polish = polish
-    orch = Orchestrator(config)
-
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        BarColumn(),
-        MofNCompleteColumn(),
-        TextColumn("段"),
-        TimeElapsedColumn(),
-        console=console,
-    ) as prog:
-        task = prog.add_task("准备中…", total=None)
-
-        def cb(done: int, total: int, label: str) -> None:
-            prog.update(task, completed=done, total=total or None, description=label)
-
-        if chapter is not None:
-            store = orch.run(input, only_chapter=chapter, progress=cb)
-            console.print(f"[green]已翻第 {chapter} 章[/]，状态目录：{store.run_dir}")
-            return
-
-        result = orch.run_all(
-            input,
-            progress=cb,
-            out_format=fmt,
-            out_path=out,
-            do_qa=qa,
-        )
-
-    s = result["report"]["summary"]
-    console.print(
-        f"[bold green]完成[/]：{s['chapters_done']}/{s['chapters_total']} 章，"
-        f"术语 {s['terms']}，一致性问题 {len(result['qa_issues'])} 项。"
-    )
-    console.print(f"译文：[bold]{result['output']}[/]")
+    _translate_impl(input, chapter=chapter, fmt=fmt, out=out, polish=polish, qa=qa)
 
 
 @app.command()
@@ -122,14 +143,7 @@ def resume(
     fmt: str = typer.Option("epub", "--format", help="输出格式：epub | txt"),
 ):
     """断点续跑（等价于再次 translate）。"""
-    translate(
-        input=input,
-        chapter=None,
-        fmt=fmt,
-        out=None,
-        polish=None,
-        qa=None,
-    )
+    _translate_impl(input, fmt=fmt)
 
 
 # ── 查询 / 细粒度命令 ──────────────────────────────────────────────────────
