@@ -7,6 +7,7 @@ import re
 import unittest
 
 from trans_novel.config import Config
+from trans_novel.agents import prompts
 from trans_novel.llm.base import FakeClient
 from trans_novel.agents.translator import Translator
 from trans_novel.pipeline.checks import count_aligned, length_flags
@@ -55,6 +56,15 @@ class TestTranslatorAlignment(unittest.TestCase):
         single_calls = [c for c in client.calls
                         if _count_segments(c["messages"][-1]["content"]) == 1]
         self.assertGreaterEqual(len(single_calls), 3)
+
+
+class TestTranslatorPromptOrder(unittest.TestCase):
+    def test_static_chapter_digest_precedes_dynamic_glossary(self):
+        for template in (prompts.TRANSLATOR_USER, prompts.TRANSLATOR_FIX_USER):
+            self.assertLess(
+                template.template.index("【本章梗概】"),
+                template.template.index("【专有名词对照表】"),
+            )
 
 
 class TestChecks(unittest.TestCase):
