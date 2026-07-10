@@ -6,8 +6,6 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 from ..glossary.store import GlossaryStore
 from ..pipeline.runstore import RunStore, STATUS_DONE
 from . import prompts
@@ -50,35 +48,3 @@ class ConsistencyChecker(Agent):
         )
         return self.dict_items(
             self._ask_json(system, user, tier="cheap", key="issues", default=[]))
-
-    def autofix(self, store: RunStore, glossary: GlossaryStore) -> dict[str, Any]:
-        """对可安全机械修复的术语/译名不一致，生成确定替换并改写正文。
-
-        代词/语气类不在此处理（留作建议，避免重写句子损伤质量）。
-        返回 {"replacements":[...], "rewritten": 改动段数}。
-        """
-        from .glossary_auditor import GlossaryAuditor
-
-        digests = self._chapter_digests(store)
-        if not digests.strip():
-            return {"replacements": [], "rewritten": 0}
-        system = prompts.render("consistency_fix_system", src=self.src, tgt=self.tgt)
-        user = (
-            "【专有名词对照表】\n"
-            + prompts.render_glossary(glossary.all_terms())
-            + "\n\n【各章译文摘要】\n" + digests
-            + '\n\n请输出 JSON：{"replacements":[...]}。'
-        )
-        raw = self._ask_json(system, user, tier="strong", key="replacements", default=[])
-        replace_map: dict[str, str] = {}
-        applied: list[dict] = []
-        for r in raw:
-            if not isinstance(r, dict):
-                continue
-            wrong = str(r.get("wrong", "")).strip()
-            right = str(r.get("right", "")).strip()
-            if wrong and right and wrong != right:
-                replace_map[wrong] = right
-                applied.append({"wrong": wrong, "right": right, "reason": r.get("reason", "")})
-        rewritten = GlossaryAuditor._rewrite_targets(store, glossary, replace_map) if replace_map else 0
-        return {"replacements": applied, "rewritten": rewritten}

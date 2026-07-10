@@ -12,7 +12,6 @@ from trans_novel.config import Config
 from trans_novel.postprocess.punct import normalize_zh
 from trans_novel.llm.base import FakeClient
 from trans_novel.pipeline.orchestrator import Orchestrator
-from trans_novel.glossary.store import GlossaryStore, GlossaryTerm
 from tests.sample_data import write_sample_txt
 from tests.fake_llm import routing_handler
 
@@ -72,54 +71,6 @@ class TestPunct(unittest.TestCase):
         self.assertEqual(normalize_zh("等等...走了--他笑了"), "等等……走了——他笑了")
 
 
-class TestGlossaryAudit(unittest.TestCase):
-    def test_unify_variants_and_rewrite_targets(self):
-        from trans_novel.agents.glossary_auditor import GlossaryAuditor
-
-        with tempfile.TemporaryDirectory() as d:
-            txt = os.path.join(d, "novel.txt")
-            write_sample_txt(txt)
-            state = os.path.join(d, "state")
-            cfg = Config.from_dict({
-                "language": {"source": "ja", "target": "zh"},
-                "llm": {"provider": "fake", "tiers": {
-                    "strong": {"model": "p"}, "cheap": {"model": "f"}}},
-                "pipeline": {"review": False, "polish": False,
-                             "backtranslate_sample": 0.0, "consistency_qa": False},
-                "paths": {"state_dir": state},
-            })
-            orch = Orchestrator(cfg, client=FakeClient(handler=routing_handler))
-            store = orch.run(txt)
-
-            # 人为制造译法漂移：术语表写入 佳穂，章节正文里混入 佳穗
-            g = GlossaryStore(store.glossary_path)
-            g.upsert_term(GlossaryTerm(source="カホ", target="佳穂", type="人物"), chapter=0)
-            g.close()
-            ch = store.load_chapter(0)
-            ch.segments[1].target = "佳穂和佳穗在一起。"  # 同名两种写法
-            store.save_chapter(ch)
-
-            def handler(messages, tier, json_mode):
-                if "术语一致性审计员" in messages[0]["content"]:
-                    return json.dumps({"unifications": [
-                        {"source": "カホ", "canonical": "佳穂",
-                         "variants": ["佳穗"], "reason": "统一为佳穂"}
-                    ]}, ensure_ascii=False)
-                return "{}"
-
-            g = GlossaryStore(store.glossary_path)
-            applied = GlossaryAuditor(FakeClient(handler=handler), cfg).audit(store, g)
-            self.assertEqual(len(applied), 1)
-            term = g.get_term("カホ")
-            self.assertTrue(term.locked)
-            self.assertIn("佳穗", term.aliases)
-            g.close()
-
-            # 正文里的 佳穗 应已被改写为 佳穂
-            ch2 = store.load_chapter(0)
-            self.assertEqual(ch2.segments[1].target, "佳穂和佳穂在一起。")
-
-
 class TestRunAll(unittest.TestCase):
     def test_continuous_pipeline_outputs_epub(self):
         with tempfile.TemporaryDirectory() as d:
@@ -147,7 +98,7 @@ class TestRunAll(unittest.TestCase):
             self.assertEqual(seen[-1][0], seen[-1][1])
             # auto 通过模型检测把源语言定为 ja
             self.assertEqual(cfg.source_lang, "ja")
-            # 报告含一致性字段；术语审计不在连续流程中自动运行
+            # 报告含一致性字段。
             self.assertIn("consistency_issues", result["report"])
             with open(result["store"].event_log_path, "r", encoding="utf-8") as f:
                 events = [json.loads(line) for line in f if line.strip()]
@@ -156,7 +107,6 @@ class TestRunAll(unittest.TestCase):
             self.assertIn("batch_translated", event_names)
             self.assertIn("report_saved", event_names)
             self.assertIn("assembled", event_names)
-            self.assertNotIn("glossary_audit_finished", event_names)
             translated = next(e for e in events if e["event"] == "batch_translated")
             self.assertTrue(translated["segments"])
             self.assertIn("source", translated["segments"][0])

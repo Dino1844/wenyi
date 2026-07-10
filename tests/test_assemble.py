@@ -150,23 +150,6 @@ class TestTitleTranslation(unittest.TestCase):
             self.assertIn("<dc:language>zh-Hans</dc:language>", opf)
             self.assertEqual(os.path.basename(out), "novel.zh.epub")
 
-    def test_rewrite_targets_propagates_to_titles(self):
-        from trans_novel.agents.glossary_auditor import GlossaryAuditor
-        with tempfile.TemporaryDirectory() as d:
-            txt = os.path.join(d, "novel.txt"); write_sample_txt(txt)
-            store, cfg = _run(txt, os.path.join(d, "state"))
-            # 手动写入含变体的标题译名
-            m = store.load_manifest()
-            m["title_translated"] = "佳穂传"
-            m["chapters"][0]["title_translated"] = "佳穂登场"
-            store.save_manifest(m)
-            g = GlossaryStore(store.glossary_path)
-            GlossaryAuditor._rewrite_targets(store, g, {"佳穂": "佳穗"})
-            g.close()
-            m2 = store.load_manifest()
-            self.assertNotIn("title_translated", m2)                    # 书名译名字段被清理
-            self.assertEqual(m2["chapters"][0]["title_translated"], "佳穗登场")  # 章名已规范
-
     def test_rewrite_nav_and_ncx_labels(self):
         from trans_novel.assemble.writer import _rewrite_toc
 

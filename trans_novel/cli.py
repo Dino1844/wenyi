@@ -175,12 +175,12 @@ def status(input: str = typer.Argument(..., help="输入文件")):
 def glossary(
     input: str = typer.Argument(..., help="输入文件"),
     action: str = typer.Argument(
-        "list", help="list | conflicts | audit | lock | resolve"
+        "list", help="list | conflicts | lock | resolve"
     ),
     arg1: Optional[str] = typer.Argument(None),
     arg2: Optional[str] = typer.Argument(None),
 ):
-    """术语库管理。audit 自动统一译法并改写正文。"""
+    """术语库管理。"""
     from .glossary import resolver
     from .glossary.store import GlossaryStore
 
@@ -207,17 +207,6 @@ def glossary(
                 console.print(
                     f"  {c['source']}: 现有「{c['existing_target']}」 vs "
                     f"提议「{c['proposed_target']}」（第{c['chapter']}章）"
-                )
-        elif action == "audit":
-            from .agents.glossary_auditor import GlossaryAuditor
-            from .llm.base import build_client
-
-            applied = GlossaryAuditor(build_client(config), config).audit(store, g)
-            console.print(f"已统一 {len(applied)} 组术语：")
-            for u in applied:
-                console.print(
-                    f"  {u['source']} → [bold]{u['canonical']}[/]"
-                    f"（替换 {', '.join(u['variants']) or '—'}）"
                 )
         elif action == "lock":
             if arg1 is None:
