@@ -3,8 +3,8 @@
 单章流水线（章内批次**串行**，逐批刷新滚动上下文与术语快照；跨章亦串行传递梗概）：
   每批：渲染上下文（含前一批刚译出的译文）→ 翻译（对齐保证）→ 润色（可选）→
         标点规范化 → 术语/称呼/固定表达实时抽取入库 → 立即供下一批参照。
-  章末（串行）：全章术语兜底抽取 → 整章分块审校（不阻塞翻译主路径）→
-        严重项定向重译（autofix_severe，过长度校验才采纳）→ 回译抽检 → 写 TM → 落盘标记 done。
+  章末：全章术语兜底抽取 → 整章分块并行审校 →
+        严重项串行定向重译（autofix_severe，过长度校验才采纳）→ 回译抽检 → 写 TM → 落盘标记 done。
 翻译前先预扫源文建立全书理解（逐章梗概+全书概览，fast 档并行），作恒定前缀注入每章翻译。
 
 run_all：在翻译全书后接 术语 AI 审计统一 → 一致性 QA → 写报告 → 回填出 EPUB，一气呵成。
@@ -130,6 +130,7 @@ class Orchestrator:
                 "backtranslate_sample": self.config.pipeline.backtranslate_sample,
                 "consistency_qa": self.config.pipeline.consistency_qa,
                 "book_understanding": self.config.pipeline.book_understanding,
+                "review_concurrency": self.config.pipeline.review_concurrency,
             },
         )
         glossary = GlossaryStore(store.glossary_path)
@@ -554,25 +555,47 @@ class Orchestrator:
     _SEVERE_TYPES = ("missing", "mistranslation")
 
     def _review_chapter(self, text_segs, terms) -> list[dict]:
-        """整章分块审校（章末统一做，不在批内阻塞翻译主路径）。
+        """整章分块并行审校（章末统一做，不在批内阻塞翻译主路径）。
 
         块 = 连续段序列（约 3 倍翻译批大小，减少调用次数与重复注入的输入 token）；
         块内 reviewer 返回的 index 是块内下标，加块首段偏移映射回章内段号；
-        越界 index 直接丢弃（模型幻觉防御）。
+        越界 index 直接丢弃（模型幻觉防御）。各块只读固定译文和术语快照，
+        可并行调用；结果始终按原块顺序合并，保持确定性。
         """
         budget = self.config.segment.max_chars_per_batch * 3
-        issues: list[dict] = []
+        chunks = self._pack_contiguous(text_segs, budget)
+        if not chunks:
+            return []
+
+        jobs: list[tuple[int, list]] = []
         base = 0
-        for chunk in self._pack_contiguous(text_segs, budget):
+        for chunk in chunks:
+            jobs.append((base, chunk))
+            base += len(chunk)
+
+        def review_one(job: tuple[int, list]) -> list[dict]:
+            chunk_base, chunk = job
             srcs = [s.source for s in chunk]
             tgts = [s.target or "" for s in chunk]
+            chunk_issues: list[dict] = []
             for it in self.reviewer.review(srcs, tgts, terms):
                 idx = it.get("index")
                 if isinstance(idx, int) and 0 <= idx < len(chunk):
-                    it["index"] = base + idx
-                    issues.append(it)
-            base += len(chunk)
-        return issues
+                    it["index"] = chunk_base + idx
+                    chunk_issues.append(it)
+            return chunk_issues
+
+        workers = min(
+            max(1, self.config.pipeline.review_concurrency),
+            len(jobs),
+        )
+        if workers == 1:
+            results = [review_one(job) for job in jobs]
+        else:
+            with ThreadPoolExecutor(max_workers=workers) as ex:
+                # executor.map 保持输入顺序；并发完成顺序不会改变 issue 顺序。
+                results = list(ex.map(review_one, jobs))
+        return [issue for chunk_issues in results for issue in chunk_issues]
 
     @staticmethod
     def _pack_contiguous(segs, budget: int) -> list[list]:

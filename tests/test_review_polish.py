@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import json
+import threading
 import unittest
 
 from trans_novel.config import Config
+from trans_novel.ingest.models import Segment
 from trans_novel.llm.base import FakeClient
 from trans_novel.agents.reviewer import Reviewer, BackTranslator
 from trans_novel.agents.polisher import Polisher
+from trans_novel.pipeline.orchestrator import Orchestrator
 
 
 def _cfg():
@@ -30,6 +33,33 @@ class TestReviewer(unittest.TestCase):
         out = r.review(["あ", "い"], ["甲", "乙"])
         self.assertEqual(len(out), 2)
         self.assertEqual(client.calls[-1]["tier"], "cheap")  # 审校走廉价档
+
+    def test_chapter_review_chunks_run_concurrently_and_merge_in_order(self):
+        barrier = threading.Barrier(2)
+
+        def handler(messages, tier, json_mode):
+            user = messages[1]["content"]
+            barrier.wait(timeout=2)
+            detail = "甲" if "源文甲" in user else "乙"
+            return json.dumps({"issues": [{
+                "index": 0,
+                "type": "missing",
+                "detail": detail,
+            }]}, ensure_ascii=False)
+
+        cfg = _cfg()
+        cfg.segment.max_chars_per_batch = 1  # 审校预算=3，使两个 3 字段落各成一块
+        cfg.pipeline.review_concurrency = 2
+        orch = Orchestrator(cfg, client=FakeClient(handler=handler))
+        segments = [
+            Segment(index=0, source="源文甲", target="译文甲"),
+            Segment(index=1, source="源文乙", target="译文乙"),
+        ]
+
+        issues = orch._review_chapter(segments, [])
+
+        self.assertEqual([it["index"] for it in issues], [0, 1])
+        self.assertEqual([it["detail"] for it in issues], ["甲", "乙"])
 
 
 class TestPolisher(unittest.TestCase):

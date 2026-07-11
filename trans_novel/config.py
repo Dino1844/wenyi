@@ -58,6 +58,7 @@ pipeline:
   rolling_context_segments: 6 # 注入的前文译文尾段数
   book_understanding: true # 翻译前预扫源文，生成全书概览+逐章梗概注入翻译
   prescan_concurrency: 4 # 预扫逐章梗概的并发线程数（各章独立，1=串行）
+  review_concurrency: 4 # 章末审校分块的并发线程数（只读固定译文/术语，1=串行）
   glossary_scope: chapter # chapter=本章相关词条；full=全量表
 
 # ── 敬称策略（日语源文本时生效，其它语言通常不会用到）────────────────────
@@ -117,6 +118,7 @@ class PipelineConfig(BaseModel):
     # fast 档（免思考），且全局概览为恒定前缀可命中缓存复用；关掉可省去预扫成本。
     book_understanding: bool = True
     prescan_concurrency: int = 4     # 预扫逐章梗概的并发线程数（各章独立，1=串行）
+    review_concurrency: int = 4      # 章末审校分块并发数（结果按原块序合并，1=串行）
     glossary_scope: str = "chapter"  # chapter=只注入本章出现的词条+锁定人物（省 token）；full=全量表
 
 

@@ -28,6 +28,7 @@ class TestConfigFileCreation(unittest.TestCase):
             self.assertTrue(cfg.pipeline.polish)
             self.assertEqual(cfg.pipeline.backtranslate_sample, 0.0)
             self.assertFalse(cfg.pipeline.consistency_qa)
+            self.assertEqual(cfg.pipeline.review_concurrency, 4)
 
     def test_load_never_overwrites_existing_config(self):
         with tempfile.TemporaryDirectory() as d:
@@ -51,6 +52,7 @@ class TestConfigFileCreation(unittest.TestCase):
         self.assertTrue(cfg.pipeline.polish)
         self.assertEqual(cfg.pipeline.backtranslate_sample, 0.0)
         self.assertFalse(cfg.pipeline.consistency_qa)
+        self.assertEqual(cfg.pipeline.review_concurrency, 4)
 
 
 if __name__ == "__main__":
