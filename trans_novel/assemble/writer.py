@@ -60,7 +60,8 @@ def _default_out(
     bilingual: bool = False,
 ) -> str:
     """Return the default export path under the input file's ``output`` folder."""
-    ext = ".epub" if out_format == "epub" else ".txt"
+    ext = {"epub": ".epub", "markdown": ".md"}.get(out_format, ".txt")
+    
     output_dir = os.path.join(os.path.dirname(os.path.abspath(source_path)), "output")
     os.makedirs(output_dir, exist_ok=True)
     if title and title.strip():
@@ -150,6 +151,37 @@ def _assemble_text(
         f.write("\n\n".join(chapter_blocks) + "\n")
     return out_path
 
+# ── markdown ────────────────────────────────────────────────────────────────── 
+def _assemble_markdown(
+    store: RunStore,
+    out_path: str,
+    *,
+    bilingual: bool = False,
+    order: str = "target_first",
+) -> str:
+    m = store.load_manifest()
+    chapter_blocks: list[str] = []
+    for c in m["chapters"]:
+        ch = store.load_chapter(c["index"])
+        blocks: list[str] = []
+        for kind, target, source in _merged_paragraphs(ch):
+            if kind == KIND_HEADING: 
+                target = "# " + target 
+            src = (
+                _bilingual_source(source, target)
+                if (bilingual and kind != KIND_HEADING)
+                else ""
+            )
+            if not src:
+                blocks.append(target)
+            elif order == "source_first":
+                blocks.extend((src, target))
+            else:
+                blocks.extend((target, src))
+        chapter_blocks.append("\n\n".join(blocks))
+    with open(out_path, "w", encoding="utf-8") as f:
+        f.write("\n\n".join(chapter_blocks) + "\n")
+    return out_path
 
 # ── EPUB ────────────────────────────────────────────────────────────────────
 def _render_chapter_html(
@@ -551,12 +583,18 @@ def assemble(
       - 原文是 EPUB → 按原模板回填，保留排版/资源；
       - 原文是纯文本 → 生成一个规范的 EPUB（标题 h1 + 段落 p）。
     out_format="txt"：无论原文格式，按章重建为纯文本。
+    out_format="markdown"：无论原文格式，按章重建为markdown。
     bilingual=True 时额外输出原文（淡背景块），order 控制译文/原文先后。
     """
+    # txt
     m = store.load_manifest()
     if out_format == "txt":
         out_path = out_path or _default_out(source_path, "txt", "", bilingual=bilingual)
         return _assemble_text(store, out_path, bilingual=bilingual, order=order)
+    # markdown
+    if out_format == "markdown":
+        out_path = out_path or _default_out(source_path, "markdown", "", bilingual=bilingual)
+        return _assemble_markdown(store, out_path, bilingual=bilingual, order=order)
     # epub
     out_path = out_path or _default_out(source_path, "epub", "", bilingual=bilingual)
     if m["fmt"] == "epub":
