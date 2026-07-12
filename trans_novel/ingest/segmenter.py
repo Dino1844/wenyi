@@ -16,6 +16,7 @@ from .epub_reader import read_epub
 from .fb2_reader import read_fb2
 from .models import KIND_TEXT, Chapter, Document, Segment
 from .text_reader import read_text
+from .md_reader import read_text as read_md
 
 # 常见句末标点，用于超长段的按句拆分
 _SENT_SPLIT = re.compile(r"(?<=[。．.!！？!?…\n])")
@@ -91,8 +92,10 @@ def load_document(path: str, source_lang: str, target_lang: str,
     ext = os.path.splitext(path)[1].lower()
     if ext == ".epub":
         doc = read_epub(path, source_lang, target_lang)
-    elif ext in (".txt", ".md", ".markdown", ".text"):
-        doc = read_text(path, source_lang, target_lang)
+    elif ext in (".md", ".markdown"):                                            
+       doc = read_md(path, source_lang, target_lang)                            
+    elif ext in (".txt", ".text"):                                               
+       doc = read_text(path, source_lang, target_lang) 
     elif ext == ".fb2":
         doc = read_fb2(path, source_lang, target_lang)
     else:

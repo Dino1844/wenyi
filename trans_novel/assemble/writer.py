@@ -163,10 +163,11 @@ def _assemble_markdown(
     chapter_blocks: list[str] = []
     for c in m["chapters"]:
         ch = store.load_chapter(c["index"])
+        heading_prefix = "#" * ch.meta.get("heading_level", 1) + " "   # 添加标题层级
         blocks: list[str] = []
         for kind, target, source in _merged_paragraphs(ch):
             if kind == KIND_HEADING: 
-                target = "# " + target 
+                target = heading_prefix + target 
             src = (
                 _bilingual_source(source, target)
                 if (bilingual and kind != KIND_HEADING)
