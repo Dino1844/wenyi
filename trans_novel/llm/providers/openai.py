@@ -38,8 +38,11 @@ def build_request_kwargs(
     max_tokens: Optional[int] = None,
 ) -> dict[str, Any]:
     kwargs = base_request_kwargs(tier_config.model, messages, json_mode=json_mode)
-    if tier_config.options.thinking:
-        kwargs["reasoning_effort"] = tier_config.options.reasoning_effort
+    kwargs["reasoning_effort"] = (
+        tier_config.options.reasoning_effort
+        if tier_config.options.thinking
+        else "none"
+    )
     if tier_config.options.extra_body:
         kwargs["extra_body"] = deep_merge({}, tier_config.options.extra_body)
     if max_tokens is not None:

@@ -67,14 +67,16 @@ def build_request_kwargs(
     max_tokens: Optional[int] = None,
 ) -> dict[str, Any]:
     kwargs = base_request_kwargs(tier_config.model, messages, json_mode=json_mode)
-    extra_body: dict[str, Any] = {}
+    extra_body: dict[str, Any] = {
+        "thinking": {
+            "type": "enabled" if tier_config.options.thinking else "disabled"
+        }
+    }
     if tier_config.options.thinking:
         kwargs["reasoning_effort"] = tier_config.options.reasoning_effort
-        extra_body = {"thinking": {"type": "enabled"}}
     if tier_config.options.extra_body:
         extra_body = deep_merge(extra_body, tier_config.options.extra_body)
-    if extra_body:
-        kwargs["extra_body"] = extra_body
+    kwargs["extra_body"] = extra_body
     if max_tokens is not None:
         kwargs["max_tokens"] = (
             max(max_tokens, 4096) if tier_config.options.thinking else max_tokens

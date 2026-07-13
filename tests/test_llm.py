@@ -114,6 +114,17 @@ class TestProviderRequestKwargs(unittest.TestCase):
             {"thinking": {"type": "enabled", "budget": 8192}},
         )
 
+        disabled = ResolvedTier(
+            model="m",
+            options=DeepSeekTierOptions(thinking=False),
+        )
+        disabled_kwargs = build_request_kwargs(disabled, self.messages)
+        self.assertNotIn("reasoning_effort", disabled_kwargs)
+        self.assertEqual(
+            disabled_kwargs["extra_body"],
+            {"thinking": {"type": "disabled"}},
+        )
+
     def test_openrouter_dialect_and_explicit_disable(self):
         from trans_novel.llm.providers._openai_compatible import ResolvedTier
         from trans_novel.llm.providers.openrouter import (
@@ -154,6 +165,13 @@ class TestProviderRequestKwargs(unittest.TestCase):
 
         self.assertEqual(kwargs["reasoning_effort"], "low")
         self.assertNotIn("extra_body", kwargs)
+
+        disabled = ResolvedTier(
+            model="m",
+            options=OpenAITierOptions(thinking=False),
+        )
+        disabled_kwargs = build_request_kwargs(disabled, self.messages)
+        self.assertEqual(disabled_kwargs["reasoning_effort"], "none")
 
     def test_generic_compatible_endpoint_uses_only_explicit_extra_body(self):
         from trans_novel.llm.providers._openai_compatible import ResolvedTier
