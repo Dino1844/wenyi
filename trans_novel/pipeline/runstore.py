@@ -91,7 +91,12 @@ class RunStore:
         return os.path.isfile(self.manifest_path)
 
     # ── manifest ──────────────────────────────────────────────────────────
-    def init_from_document(self, doc: Document) -> dict:
+    def stage_document(self, doc: Document) -> dict:
+        """写入初始章节文件并返回 manifest 内容，但不提前写 manifest。
+
+        manifest 是一次运行初始化完成的标志，由调用方在分析、术语库
+        和上下文都已落盘后最后保存。
+        """
         manifest = {
             "title": doc.title,
             "fmt": doc.fmt,
@@ -105,7 +110,6 @@ class RunStore:
                 for c in doc.chapters
             ],
         }
-        self.save_manifest(manifest)
         for c in doc.chapters:
             self.save_chapter(c)
         return manifest
