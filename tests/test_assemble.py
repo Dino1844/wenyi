@@ -14,7 +14,11 @@ from bs4.element import Tag
 from trans_novel.config import Config
 from trans_novel.llm.providers.fake import FakeClient
 from trans_novel.pipeline.orchestrator import Orchestrator
-from trans_novel.assemble.writer import _render_chapter_html, assemble
+from trans_novel.assemble.writer import (
+    _render_chapter_html,
+    _rewrite_html_document,
+    assemble,
+)
 from trans_novel.assemble.report import build_report
 from trans_novel.glossary.store import GlossaryStore
 from trans_novel.ingest.segmenter import load_document
@@ -136,6 +140,23 @@ class TestAssembleText(unittest.TestCase):
 
 
 class TestAssembleEpub(unittest.TestCase):
+    def test_rewrite_html_honors_declared_encoding_and_emits_utf8(self):
+        source = (
+            '<?xml version="1.0" encoding="Shift_JIS"?>'
+            "<html><body><p>日本語</p></body></html>"
+        ).encode("shift_jis")
+
+        output = _rewrite_html_document(
+            source,
+            lang="zh-Hans",
+            force_horizontal=False,
+        )
+        decoded = output.decode("utf-8")
+
+        self.assertIn("日本語", decoded)
+        self.assertIn('encoding="utf-8"', decoded)
+        self.assertIn('lang="zh-Hans"', decoded)
+
     def test_epub_export_restores_inline_image_from_persisted_meta(self):
         with tempfile.TemporaryDirectory() as d:
             epub = os.path.join(d, "inline.epub")
