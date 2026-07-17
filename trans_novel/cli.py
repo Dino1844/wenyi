@@ -543,6 +543,9 @@ def assemble(
                 out_format=fmt,
                 bilingual=True,
                 order=config.output.bilingual_order,
+                preserve_source_style=(
+                    config.output.bilingual_preserve_source_style
+                ),
                 about_page=config.output.about_page,
             )
         )

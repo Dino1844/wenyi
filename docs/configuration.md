@@ -177,12 +177,14 @@ output:
   mono: true
   bilingual: false
   bilingual_order: target_first
+  bilingual_preserve_source_style: false
   about_page: true
 ```
 
 - `mono`: produce the monolingual Chinese edition as `<book-name>.zh.epub`.
 - `bilingual`: produce a source-and-translation edition as `<book-name>.zh-bi.epub`.
 - `bilingual_order`: `target_first` places the translation before the source; `source_first` reverses the order.
+- `bilingual_preserve_source_style`: when `true`, source blocks inherit the book's normal text style instead of using the subdued gray style. This affects EPUB and HTML output only.
 - `about_page`: append an “About this translation” project page to the book; set it to `false` to disable it.
 
 Only the monolingual edition is enabled by default. `--bilingual` enables both editions, and configuration plus command-line switches can be combined to produce only the bilingual edition.

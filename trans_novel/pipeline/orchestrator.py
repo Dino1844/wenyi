@@ -1247,6 +1247,9 @@ class Orchestrator:
                         out_format=out_format,
                         bilingual=True,
                         order=out_cfg.bilingual_order,
+                        preserve_source_style=(
+                            out_cfg.bilingual_preserve_source_style
+                        ),
                         about_page=out_cfg.about_page,
                     )
                 )

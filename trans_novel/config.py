@@ -80,6 +80,7 @@ output:
   mono: true # 产出单语中文版（<书名>.zh.epub）
   bilingual: false # 产出原文与译文对照版（<书名>.zh-bi.epub）
   bilingual_order: target_first # target_first=译文在上；source_first=原文在上
+  bilingual_preserve_source_style: false # true=原文继承原书样式；false=灰色淡化显示
   about_page: true # 在书末附加“关于此翻译”说明页
 """
 
@@ -133,6 +134,7 @@ class OutputConfig(BaseModel):
     bilingual_order: str = (
         "target_first"  # target_first=译文在上原文在下(默认); source_first=原文在上
     )
+    bilingual_preserve_source_style: bool = False
     about_page: bool = True  # 在书末附加项目说明页
 
 
