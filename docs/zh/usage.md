@@ -39,7 +39,7 @@ setx DEEPSEEK_API_KEY "sk-..."
 - `--format txt|html|markdown`：改为导出指定格式；所有输入默认仍生成 EPUB。
 - PDF 首次读取需设置 `MINERU_API_KEY`。转换结果保存为 `state/<书名>/source/converted.html`，后续运行会直接复用，也可人工修正后再续跑。
 - EPUB 输入会尽量按原 XHTML 模板回填译文，保留样式、图片、目录和锚点。
-- 双语版按段展示译文与淡化原文，排列顺序由 `output.bilingual_order` 控制。
+- 双语版按段展示译文与原文，原文默认淡化；设置 `output.bilingual_preserve_source_style: true` 可改为继承书籍正文样式。排列顺序由 `output.bilingual_order` 控制。
 - EPUB 默认在书末附加“关于此翻译”说明，可通过 `output.about_page: false` 关闭。
 - 状态文件位于 `state/`，包含章节中间结果、术语 SQLite 库和报告。
 
@@ -50,6 +50,7 @@ setx DEEPSEEK_API_KEY "sk-..."
 uv run trans-novel translate book.epub
 uv run trans-novel translate book.epub --chapter 3
 uv run trans-novel translate book.epub --format txt
+uv run trans-novel translate book.epub --prepare  # 仅准备和预扫，不翻译
 uv run trans-novel translate book.pdf
 
 # 覆盖配置中的润色与审校开关
@@ -61,6 +62,8 @@ uv run trans-novel translate book.epub --bilingual
 uv run trans-novel translate book.epub --no-mono --bilingual
 ```
 
+`--prepare` 会解析书籍、识别语言、生成风格指南和初始术语表，并完成配置中启用的全书预扫，但不翻译任何正文。之后不带 `--prepare` 再次运行同一命令，即可复用状态继续翻译。
+
 ## 中断与续跑
 
 已完成的批次会写入状态目录。中断后使用同一个源文件执行：
@@ -70,11 +73,12 @@ uv run trans-novel resume book.epub
 uv run trans-novel status book.epub
 ```
 
-更改润色或审校开关不会自动重跑已经完成的批次；需要重新翻译时请使用新的状态目录或清理对应状态。
+更改润色设置不会自动重跑已经完成的翻译批次。最终审校拥有独立的持久化状态，可通过 `review --force` 单独重跑；只有需要从头翻译时才应使用新的状态目录或清理对应状态。
 
 ## 常用工具
 
 ```bash
+uv run trans-novel review book.epub
 uv run trans-novel tools glossary book.epub list
 uv run trans-novel tools glossary book.epub conflicts
 uv run trans-novel tools qa book.epub
@@ -82,4 +86,4 @@ uv run trans-novel tools report book.epub
 uv run trans-novel tools assemble book.epub
 ```
 
-`qa` 和 `report` 默认只汇总问题，不会修改正文；`assemble` 可在不重新调用模型的情况下重新导出已有译文。
+`review` 会使用最终术语库检查完整译文；`--force` 可重审未变化章节，`--fix` 可采纳通过校验的严重项修复。`qa` 和 `report` 默认只汇总问题，不会修改正文；`assemble` 可在不重新调用模型的情况下重新导出已有译文。

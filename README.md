@@ -23,6 +23,15 @@ uv run trans-novel resume book.epub
 uv run trans-novel status book.epub
 ```
 
+Final review is disabled by default. Set `pipeline.review: true` to run it
+automatically after the complete book has been translated and the glossary has
+reached its final state, or run and repeat the stage independently:
+
+```bash
+uv run trans-novel review book.epub
+uv run trans-novel review book.epub --force --fix
+```
+
 ## Supported formats and output
 
 - Input: EPUB, FB2, TXT, Markdown, HTML, and PDF.

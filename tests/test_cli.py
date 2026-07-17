@@ -15,6 +15,8 @@ from trans_novel.ingest.errors import MinerUError
 
 
 class FakeStore:
+    run_dir = "state/book"
+
     def load_usage(self):
         return None
 
@@ -137,6 +139,75 @@ class TestCliConfig(unittest.TestCase):
         self.assertFalse(captured["polish"])
         self.assertTrue(captured["run_all"]["do_qa"])
 
+    def test_translate_prepare_stops_before_translation(self):
+        cfg = Config.from_dict(
+            {
+                "llm": {"provider": "fake", "tiers": {"strong": {"model": "p"}}},
+            }
+        )
+        captured = {}
+
+        class PreparedStore(FakeStore):
+            @staticmethod
+            def load_manifest():
+                return {"chapters": [{"index": 0}, {"index": 1}]}
+
+            @staticmethod
+            def load_analysis():
+                return {"book_synopsis": "overview"}
+
+            @staticmethod
+            def load_chapter(index):
+                class Chapter:
+                    meta = {"source_digest": f"digest-{index}"}
+
+                return Chapter()
+
+        class FakeOrchestrator:
+            def __init__(self, config):
+                captured["config"] = config
+
+            def prepare_for_translation(self, input_path, **kwargs):
+                captured["input_path"] = input_path
+                captured["prepare"] = kwargs
+                return PreparedStore()
+
+            def run_all(self, input_path, **kwargs):
+                raise AssertionError("--prepare 不应进入翻译流程")
+
+        with (
+            patch("trans_novel.cli._load_config", return_value=cfg),
+            patch("trans_novel.pipeline.orchestrator.Orchestrator", FakeOrchestrator),
+            patch("trans_novel.cli.os.path.isfile", return_value=True),
+        ):
+            result = CliRunner().invoke(
+                app,
+                ["translate", "input.txt", "--prepare"],
+            )
+
+        self.assertEqual(result.exit_code, 0, result.output)
+        self.assertEqual(captured["input_path"], "input.txt")
+        self.assertIn("准备完成", result.output)
+        self.assertIn("预扫 2/2 章", result.output)
+
+    def test_translate_prepare_rejects_chapter(self):
+        cfg = Config.from_dict(
+            {
+                "llm": {"provider": "fake", "tiers": {"strong": {"model": "p"}}},
+            }
+        )
+        with (
+            patch("trans_novel.cli._load_config", return_value=cfg),
+            patch("trans_novel.cli.os.path.isfile", return_value=True),
+        ):
+            result = CliRunner().invoke(
+                app,
+                ["translate", "input.txt", "--prepare", "--chapter", "0"],
+            )
+
+        self.assertEqual(result.exit_code, 1, result.output)
+        self.assertIn("--prepare 不能与 --chapter", result.output)
+
     def test_resume_delegates_to_translate_without_audit_argument(self):
         cfg = Config.from_dict(
             {
@@ -182,6 +253,43 @@ class TestCliConfig(unittest.TestCase):
         self.assertIsNone(captured["run_all"]["out_path"])
         self.assertIsNone(captured["run_all"]["do_qa"])
         self.assertTrue(captured["polish"])
+
+    def test_review_command_runs_final_review_with_overrides(self):
+        cfg = Config.from_dict(
+            {
+                "llm": {"provider": "fake", "tiers": {"strong": {"model": "p"}}},
+                "pipeline": {"autofix_severe": False},
+            }
+        )
+        captured = {}
+
+        class FakeOrchestrator:
+            def __init__(self, config):
+                captured["config"] = config
+
+            def run_review(self, input_path, **kwargs):
+                captured["input_path"] = input_path
+                captured["kwargs"] = kwargs
+                return {
+                    "store": FakeStore(),
+                    "review_issues": [{"index": 0, "type": "missing"}],
+                }
+
+        with (
+            patch("trans_novel.cli._load_config", return_value=cfg),
+            patch("trans_novel.pipeline.orchestrator.Orchestrator", FakeOrchestrator),
+            patch("trans_novel.cli.os.path.isfile", return_value=True),
+        ):
+            result = CliRunner().invoke(
+                app,
+                ["review", "input.txt", "--force", "--fix"],
+            )
+
+        self.assertEqual(result.exit_code, 0, result.output)
+        self.assertEqual(captured["input_path"], "input.txt")
+        self.assertTrue(captured["kwargs"]["force"])
+        self.assertTrue(captured["kwargs"]["autofix"])
+        self.assertIn("发现 1 项问题", result.output)
 
     def test_translate_missing_input_exits_before_loading_config(self):
         missing = os.path.join(tempfile.gettempdir(), "trans-novel-missing.epub")

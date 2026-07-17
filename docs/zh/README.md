@@ -23,6 +23,14 @@ uv run trans-novel resume book.epub
 uv run trans-novel status book.epub
 ```
 
+最终审校默认关闭。设置 `pipeline.review: true` 后，一键流程会在全书翻译完成、
+术语库达到最终状态后再统一执行审校；也可以单独运行或强制重跑这一阶段：
+
+```bash
+uv run trans-novel review book.epub
+uv run trans-novel review book.epub --force --fix
+```
+
 ## 支持范围
 
 - 输入：EPUB、FB2、TXT、Markdown、HTML、PDF。
