@@ -1,4 +1,10 @@
-"""配置加载。读取 config.yaml，提供带默认值的类型化访问（pydantic v2）。"""
+"""配置加载。读取 config.yaml，提供带默认值的类型化访问（pydantic v2）。
+
+支持两种模式：
+- translate（原有翻译模式）
+- condense（书本浓缩模式）
+通过顶层 mode 字段切换，默认 condense。
+"""
 
 from __future__ import annotations
 
@@ -10,8 +16,11 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 _DEFAULT_CONFIG_YAML = """\
-# trans-novel 配置（多语言小说 → 中文）
+# trans-novel 配置（多语言小说 → 中文 / 书本浓缩）
 # 修改后无需改代码；模型提供商、流水线和输出开关都在这里。
+
+# 工作模式：condense=书本浓缩；translate=多语言翻译
+mode: condense
 
 language:
   source: auto # auto 由模型识别来源语言；也可写死 ja / en / ko / ru / de 等语言代码
@@ -82,6 +91,29 @@ output:
   bilingual_order: target_first # target_first=译文在上；source_first=原文在上
   bilingual_preserve_source_style: false # true=原文继承原书样式；false=灰色淡化显示
   about_page: true # 在书末附加“关于此翻译”说明页
+
+# ── 书本浓缩（mode: condense 时生效）─────────────────────────────────────
+condense:
+  book_type: auto # auto 自动识别；或 argumentative / narrative / knowledge / mixed
+  target_ratio: 0.45 # 目标短写比例（短写后字数 / 原文字数）；思维链完整性优先于此比例
+  min_chapter_chars: 200 # 单章浓缩后下限字符
+  max_chapter_chars: 2000 # 单章浓缩后上限字符
+  preserve_passages: true # 保留承重段落（论证枢纽/情节支点）近乎原文
+
+condense_pipeline:
+  structure_analysis: true # 全书结构分析（中心问题/弧线/承重内容）
+  concept_map: true # 建立并滚动维护概念图，保证概念自足
+  chapter_role: true # 逐章角色定位（功能/关键段/可删段）
+  polish: true # 流畅度润色：去报告感、清单感、元叙述
+  review: true # 逻辑审校：断层/概念未定义/丢失落点/假概括
+  rolling_context_segments: 4 # 注入浓缩器的滚动上下文段数
+  prescan_concurrency: 4 # 章节角色定位并发数（各章独立，1=串行）
+  review_concurrency: 4 # 预留：审校并发数
+
+condense_output:
+  format: epub # epub / markdown / txt
+  include_structure_map: true # 在书首附全书结构地图
+  about_page: true # 书末附“关于此浓缩”说明页
 """
 
 
@@ -138,7 +170,41 @@ class OutputConfig(BaseModel):
     about_page: bool = True  # 在书末附加项目说明页
 
 
+# ── 浓缩模式配置 ─────────────────────────────────────────────────────────────
+
+BookType = Literal["auto", "argumentative", "narrative", "knowledge", "mixed"]
+
+
+class CondenseConfig(BaseModel):
+    """书本浓缩策略配置。"""
+    book_type: BookType = "auto"       # auto 时由模型识别
+    target_ratio: float = 0.45         # 目标短写比例（原文的 45%）；思维链完整性优先
+    min_chapter_chars: int = 200       # 浓缩后每章最少字符数
+    max_chapter_chars: int = 2000      # 浓缩后每章最多字符数
+    preserve_passages: bool = True     # 保留"关键段落"原文（思想实验、核心对话等）
+
+
+class CondensePipelineConfig(BaseModel):
+    """浓缩流水线开关。"""
+    structure_analysis: bool = True    # 全书结构分析
+    concept_map: bool = True           # 概念图追踪
+    chapter_role: bool = True          # 逐章角色定位
+    polish: bool = True                # 流畅度润色
+    review: bool = True                # 逻辑审校
+    rolling_context_segments: int = 4  # 注入的前文浓缩尾段数
+    prescan_concurrency: int = 4       # 逐章角色定位的并发线程数
+    review_concurrency: int = 4        # 逻辑审校并发数
+
+
+class CondenseOutputConfig(BaseModel):
+    """浓缩版输出配置。"""
+    format: str = "epub"               # epub | markdown | txt
+    include_structure_map: bool = True  # 在书首附加全书结构图
+    about_page: bool = True            # 书末附加"关于此浓缩"说明页
+
+
 class Config(BaseModel):
+    mode: str = "condense"             # condense | translate
     source_lang: str = "auto"        # auto | ja | en | …（auto 时由模型检测）
     target_lang: str = "zh"
     llm: LLMConfig = Field(default_factory=LLMConfig)
@@ -148,6 +214,10 @@ class Config(BaseModel):
     honorific_strategy: str = "keep_style"
     punctuation_normalize: bool = True  # 译文标点规范化为简体中文通用
     state_dir: str = "state"
+    # 浓缩模式专属配置
+    condense: CondenseConfig = Field(default_factory=CondenseConfig)
+    condense_pipeline: CondensePipelineConfig = Field(default_factory=CondensePipelineConfig)
+    condense_output: CondenseOutputConfig = Field(default_factory=CondenseOutputConfig)
 
     @staticmethod
     def create_default_file(path: str) -> bool:
@@ -190,7 +260,16 @@ class Config(BaseModel):
         pipeline = PipelineConfig.model_validate(raw.get("pipeline", {}) or {})
         output = OutputConfig.model_validate(raw.get("output", {}) or {})
         punct = raw.get("punctuation", {}) or {}
+        # 浓缩模式配置
+        condense = CondenseConfig.model_validate(raw.get("condense", {}) or {})
+        condense_pipeline = CondensePipelineConfig.model_validate(
+            raw.get("condense_pipeline", {}) or {}
+        )
+        condense_output = CondenseOutputConfig.model_validate(
+            raw.get("condense_output", {}) or {}
+        )
         return cls(
+            mode=raw.get("mode", "condense"),
             source_lang=lang.get("source", "auto"),
             target_lang=lang.get("target", "zh"),
             llm=llm,
@@ -200,4 +279,7 @@ class Config(BaseModel):
             honorific_strategy=raw.get("honorific", {}).get("strategy", "keep_style"),
             punctuation_normalize=bool(punct.get("normalize", True)),
             state_dir=raw.get("paths", {}).get("state_dir", "state"),
+            condense=condense,
+            condense_pipeline=condense_pipeline,
+            condense_output=condense_output,
         )

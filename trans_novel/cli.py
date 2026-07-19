@@ -89,7 +89,7 @@ app = typer.Typer(
     cls=_ConfigInitializingGroup,
     add_completion=False,
     no_args_is_help=True,
-    help="面向长篇小说的多语言翻译工作流。",
+    help="长篇小说翻译与书本浓缩工作流。",
 )
 glossary_app = typer.Typer(
     add_completion=False,
@@ -294,6 +294,150 @@ def _translate_impl_or_raise(
         console.print(f"译文：[bold]{path}[/]")
 
 
+def _condense_impl(
+    input_path: str,
+    *,
+    fmt: Optional[str] = None,
+    out: Optional[str] = None,
+    book_type: Optional[str] = None,
+    ratio: Optional[float] = None,
+    polish: Optional[bool] = None,
+    review: Optional[bool] = None,
+    start: int = 0,
+    limit: Optional[int] = None,
+    force: bool = False,
+) -> None:
+    """执行书本浓缩流程，并把输入/配置错误转成简洁 CLI 提示。"""
+    try:
+        from .pipeline.condense_orchestrator import CondenseOrchestrator
+
+        _require_input_file(input_path)
+        config = _load_config()
+        if fmt is not None:
+            normalized = fmt.strip().lower()
+            if normalized not in {"epub", "markdown", "txt"}:
+                console.print(
+                    "[red]浓缩输出格式仅支持 epub / markdown / txt[/]"
+                )
+                raise typer.Exit(2)
+            config.condense_output.format = normalized
+        if book_type is not None:
+            bt = book_type.strip().lower()
+            if bt not in {"auto", "argumentative", "narrative", "knowledge", "mixed"}:
+                console.print(
+                    "[red]书籍类型仅支持 auto / argumentative / narrative / knowledge / mixed[/]"
+                )
+                raise typer.Exit(2)
+            config.condense.book_type = bt  # type: ignore[assignment]
+        if ratio is not None:
+            if not 0.05 <= ratio <= 0.8:
+                console.print("[red]浓缩比例需在 0.05 ~ 0.8 之间[/]")
+                raise typer.Exit(2)
+            config.condense.target_ratio = ratio
+        if polish is not None:
+            config.condense_pipeline.polish = polish
+        if review is not None:
+            config.condense_pipeline.review = review
+
+        orch = CondenseOrchestrator(config)
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            MofNCompleteColumn(),
+            TimeElapsedColumn(),
+            console=console,
+        ) as prog:
+            task = prog.add_task("准备浓缩…", total=None)
+
+            def cb(done: int, total: int, label: str) -> None:
+                """把浓缩编排器的进度回调同步到 Rich 任务。"""
+                nonlocal task
+                if total > 0:
+                    prog.update(task, completed=done, total=total, description=label)
+                    return
+                prog.remove_task(task)
+                task = prog.add_task(label, total=None)
+
+            result = orch.run(
+                input_path, progress=cb, out_path=out,
+                start=start, limit=limit, force=force,
+            )
+    except (IngestError, ImportError, OSError, ValueError) as error:
+        console.print(f"[red]错误：{error}[/]")
+        raise typer.Exit(1) from None
+
+    issues = result.get("issues") or []
+    severe = sum(1 for it in issues if it.get("severity") == "severe")
+    console.print(
+        f"[bold green]浓缩完成[/]：识别为 {result.get('book_type', 'mixed')} 类书籍，"
+        f"逻辑审校发现 {len(issues)} 项问题（严重 {severe} 项）。"
+    )
+    console.print(f"状态目录：[bold]{result['store'].run_dir}[/]")
+    console.print(f"浓缩版：[bold]{result['output']}[/]")
+    _print_usage({"usage": result["store"].load_usage() or {}})
+
+
+def _outline_impl(
+    input_path: str,
+    *,
+    out: Optional[str] = None,
+    book_type: Optional[str] = None,
+) -> None:
+    """生成"阅读价值速览"（大纲 + 值不值得读的判断），不进入逐章浓缩。"""
+    try:
+        from .pipeline.condense_orchestrator import CondenseOrchestrator
+
+        _require_input_file(input_path)
+        config = _load_config()
+        bt: Optional[str] = None
+        if book_type is not None:
+            bt = book_type.strip().lower()
+            if bt not in {"auto", "argumentative", "narrative", "knowledge", "mixed"}:
+                console.print(
+                    "[red]书籍类型仅支持 auto / argumentative / narrative / knowledge / mixed[/]"
+                )
+                raise typer.Exit(2)
+            if bt == "auto":
+                bt = None
+
+        orch = CondenseOrchestrator(config)
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            MofNCompleteColumn(),
+            TimeElapsedColumn(),
+            console=console,
+        ) as prog:
+            task = prog.add_task("准备分析…", total=None)
+
+            def cb(done: int, total: int, label: str) -> None:
+                """把大纲生成的进度回调同步到 Rich 任务。"""
+                nonlocal task
+                if total > 0:
+                    prog.update(task, completed=done, total=total, description=label)
+                    return
+                prog.remove_task(task)
+                task = prog.add_task(label, total=None)
+
+            result = orch.outline(input_path, progress=cb, out_path=out, book_type=bt)
+    except (IngestError, ImportError, OSError, ValueError) as error:
+        console.print(f"[red]错误：{error}[/]")
+        raise typer.Exit(1) from None
+
+    from .agents.book_outline import BookOutline
+
+    console.print(
+        f"[bold green]速览生成完成[/]：识别为 {result.get('book_type', 'mixed')} 类书籍，"
+        f"裁决：{BookOutline.verdict_label(result.get('verdict', ''))}。"
+    )
+    console.print(f"速览文件：[bold]{result['outline_path']}[/]")
+    console.print("")
+    console.print(result["outline"].rstrip())
+    _print_usage({"usage": result["store"].load_usage() or {}})
+
+
 def _prepare_impl(input_path: str) -> None:
     """完成译前准备并停止，不生成正文译文或输出文件。"""
     from .pipeline.orchestrator import Orchestrator
@@ -443,6 +587,96 @@ def prepare(
 ) -> None:
     """只解析书籍、识别语言、分析风格和术语并预扫全书，不翻译正文。"""
     _prepare_impl(input)
+
+
+@app.command(rich_help_panel="主要流程")
+def condense(
+    input: str = typer.Argument(
+        ...,
+        help="待浓缩书籍（EPUB / FB2 / TXT / Markdown / HTML / PDF）",
+    ),
+    fmt: Optional[str] = typer.Option(
+        None,
+        "--format",
+        help="浓缩版导出格式：epub / markdown / txt（覆盖 condense_output.format）",
+    ),
+    out: Optional[str] = typer.Option(
+        None,
+        "--out",
+        help="浓缩版输出路径；默认写入源文件旁的 output 目录",
+    ),
+    book_type: Optional[str] = typer.Option(
+        None,
+        "--type",
+        help="书籍类型：auto / argumentative / narrative / knowledge / mixed",
+    ),
+    ratio: Optional[float] = typer.Option(
+        None,
+        "--ratio",
+        help="目标浓缩比例（0.05~0.8），默认取 condense.target_ratio",
+    ),
+    polish: Optional[bool] = typer.Option(
+        None,
+        "--polish/--no-polish",
+        help="覆盖 condense_pipeline.polish，控制是否做流畅度润色",
+    ),
+    review: Optional[bool] = typer.Option(
+        None,
+        "--review/--no-review",
+        help="覆盖 condense_pipeline.review，控制是否做逻辑审校",
+    ),
+    limit: Optional[int] = typer.Option(
+        None,
+        "--limit",
+        min=1,
+        help="共浓缩几章（快速试跑）；默认到书末",
+    ),
+    start: int = typer.Option(
+        0,
+        "--start",
+        min=0,
+        help="从第几章开始浓缩（从 0 起，配合 --limit 试跑指定区间）",
+    ),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        help="忽略已完成的章节状态，强制重新浓缩（改 prompt 后重跑用）",
+    ),
+):
+    """一键完成结构分析、逐章浓缩、润色与审校，导出浓缩版书籍。"""
+    _condense_impl(
+        input,
+        fmt=fmt,
+        out=out,
+        book_type=book_type,
+        ratio=ratio,
+        polish=polish,
+        review=review,
+        start=start,
+        limit=limit,
+        force=force,
+    )
+
+
+@app.command(rich_help_panel="主要流程")
+def outline(
+    input: str = typer.Argument(
+        ...,
+        help="待评估书籍（EPUB / FB2 / TXT / Markdown / HTML / PDF）",
+    ),
+    out: Optional[str] = typer.Option(
+        None,
+        "--out",
+        help="速览 Markdown 另存路径；默认仅写入状态目录并在终端打印",
+    ),
+    book_type: Optional[str] = typer.Option(
+        None,
+        "--type",
+        help="书籍类型：auto / argumentative / narrative / knowledge / mixed",
+    ),
+):
+    """生成全书大纲与"值不值得读"的判断，帮你在浓缩前快速决策。"""
+    _outline_impl(input, out=out, book_type=book_type)
 
 
 @app.command(rich_help_panel="质量检查")

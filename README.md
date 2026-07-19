@@ -4,7 +4,7 @@
 
 ![Wenyi bilingual EPUB preview](docs/images/bilingual-preview.png)
 
-Wenyi is a command-line tool for translating EPUB, FB2, TXT, Markdown, HTML, and PDF novels from multiple languages into Chinese. It focuses on long-form translation quality through whole-book analysis, rolling context, an evolving glossary, polishing, and review stages.
+Wenyi is a command-line tool with two workflows. **Translation** renders EPUB, FB2, TXT, Markdown, HTML, and PDF novels from multiple languages into Chinese, focusing on long-form quality through whole-book analysis, rolling context, an evolving glossary, polishing, and review stages. **Condensation** rewrites a book into a shorter version that preserves the full chain of reasoning, and produces a reading-worthiness outline so you can judge a book before committing to it.
 
 ## Quick start
 
@@ -38,6 +38,39 @@ reached its final state, or run and repeat the stage independently:
 uv run trans-novel review book.epub
 uv run trans-novel review book.epub --force --fix
 ```
+
+## Book condensation
+
+The `condense` workflow rewrites a book into a shorter version. It is not a
+summary and not aggressive compression: every step of the argument is kept and
+must follow from the previous one; only redundancy is removed (repeated
+arguments, extra examples, citations, filler). Front matter and structural
+padding (推荐序, 赞誉, 前言, 各部分小结, 附录, 参考文献, …) are skipped
+automatically. The pipeline detects the book type, analyzes the whole-book
+structure, locates each chapter's role, rewrites chapters with rolling context,
+then polishes flow and runs a logic review.
+
+```bash
+uv run trans-novel condense book.epub                 # condensed EPUB in output/
+uv run trans-novel condense book.epub --format markdown
+uv run trans-novel condense book.epub --start 10 --limit 5 --force   # try a range
+```
+
+Before condensing (or reading) a book, generate a reading-worthiness outline —
+a one-liner, the central question, the whole-book outline, what you take away,
+load-bearing vs. skippable parts, and an explicit verdict (worth reading in
+full / worth selective reading / skip):
+
+```bash
+uv run trans-novel outline book.epub --out outline.md
+```
+
+Condensation options include `--type` (auto / argumentative / narrative /
+knowledge / mixed), `--ratio` (target length as a fraction of the source; the
+completeness of the reasoning chain always takes priority over hitting it), and
+`--polish/--no-polish`, `--review/--no-review`. Like translation, condensation
+is resumable: re-run the same command to continue; use `--force` to re-condense
+already finished chapters after changing prompts.
 
 ## Supported formats and output
 
